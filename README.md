@@ -33,5 +33,5 @@ Not all of the days have tests.
 To run a specific test, e.g. tests for day 25:
 
 ```shell
-$ lein test :only advent-of-code.core-test/day-25
+$ lein test :only aoc.test/day-25
 ```

@@ -1,11 +1,13 @@
 (ns aoc.core
   (:gen-class)
   (:require
-    [aoc.day01.core]))
+    [aoc.day01.core]
+    [aoc.day02.core]))
 
 
 (defn run-all []
-  (aoc.day01.core/run))
+  (aoc.day01.core/run)
+  (aoc.day02.core/run))
 
 
 (defn run-day [day]
