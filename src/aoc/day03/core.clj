@@ -1,6 +1,6 @@
 (ns aoc.day03.core
-  (:require [clojure.string :as str
-             clojure.set :as set]))
+  (:require [clojure.string :as str]
+            [clojure.set :as set]))
 
 
 (def vectors {:R [1 0]
@@ -9,7 +9,7 @@
               :D [0 -1]})
 
 
-(def state-init {:board {}
+(def state-init {:steps []
                  :current [0 0]})
 
 
@@ -70,12 +70,9 @@
     (assoc state :current (update (update current 0 + (first delta)) 1 + (second delta)))))
 
 
-(defn update-board [state]
-  (let [kw (position-to-keyword (:current state))
-        board (:board state)]
-    (if (kw board)
-      (assoc state :board (update board kw inc))
-      (assoc state :board (assoc board kw 1)))))
+(defn update-steps [state]
+  (let [kw (position-to-keyword (:current state))]
+    (update state :steps conj kw)))
 
 
 (defn walk-path [state path]
@@ -86,16 +83,23 @@
         state
         (recur (-> state
                  (update-current vector)
-                 (update-board)) (dec count))))))
+                 (update-steps)) (dec count))))))
 
 
-(defn follow-paths [state paths]
-  (reduce walk-path (assoc state :current [0 0]) paths))
+(defn follow-paths [paths]
+  (:steps (reduce walk-path state-init paths)))
 
 
 (defn run-lines [lines]
-  (let [state (reduce follow-paths state-init lines)]
-    (:board state)))
+  (map follow-paths lines))
+
+
+(defn list-to-set [some-list]
+  (into #{} some-list))
+
+
+(defn lists-to-sets [list-of-lists]
+  (map list-to-set list-of-lists))
 
 
 (defn intersects [m k v]
@@ -104,8 +108,8 @@
     (assoc m k v)))
 
 
-(defn board-intersections [board]
-  (reduce-kv intersects {} board))
+(defn board-intersections [boards]
+  (apply set/intersection boards))
 
 
 (defn distance [m k v]
@@ -113,7 +117,7 @@
 
 
 (defn board-distances [board]
-  (reduce-kv distance {} board))
+  (map keyword-to-distance board))
 
 
 (defn swap-key-vals [board]
@@ -121,20 +125,39 @@
 
 
 (defn sort-board [board]
-  (into (sorted-map) board))
+  (sort board))
 
 
 (defn closest-point [sorted-board]
-  (first (first sorted-board)))
+  (first sorted-board))
 
+
+(defn walk-the-lines [lines]
+  (-> lines
+      (lines-to-paths)
+      (run-lines)))
+
+
+(defn intersect-the-walks [walks]
+  (-> walks
+      (lists-to-sets)
+      (board-intersections)))
+
+
+(defn steps-to-intersection [walk intersection]
+  (+ 1 (.indexOf walk intersection)))
+
+
+(defn walk-steps-to-intersections [walks intersection]
+  (reduce + (map #(steps-to-intersection %1 intersection) walks)))
 
 (defn lines-to-closest [lines]
   (-> lines
       (lines-to-paths)
       (run-lines)
+      (lists-to-sets)
       (board-intersections)
       (board-distances)
-      (swap-key-vals)
       (sort-board)
       (closest-point)))
 
@@ -151,5 +174,25 @@
       (string-to-closest)))
 
 
+(defn lines-to-shortest [lines]
+  (let [walks (walk-the-lines lines)
+        intersects (intersect-the-walks walks)
+        steps (map #(walk-steps-to-intersections walks %1) intersects)]
+    (first (sort steps))))
+
+
+(defn string-to-shortest [string]
+  (-> string
+      (string-to-lines)
+      (lines-to-shortest)))
+
+
+(defn file-to-shortest [filename]
+  (-> filename
+      (file-to-string)
+      (string-to-shortest)))
+
+
 (defn run []
-  (println "Day 03, part 1:" (file-to-closest "src/aoc/day03/input.txt")))
+  (println "Day 03, part 1:" (file-to-closest "src/aoc/day03/input.txt"))
+  (println "Day 03, part 2:" (file-to-shortest "src/aoc/day03/input.txt")))

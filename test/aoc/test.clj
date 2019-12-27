@@ -2,7 +2,7 @@
   (:require [clojure.test :refer [deftest testing is]]
             [aoc.day01.core :refer [mass-to-fuel mass-to-fuel2]]
             [aoc.day02.core :refer [run-program]]
-            [aoc.day03.core :refer [string-to-closest]]))
+            [aoc.day03.core :refer [string-to-closest string-to-shortest]]))
 
 
 (deftest day-01-part-1
@@ -34,3 +34,9 @@
     (is (= 6 (string-to-closest "R8,U5,L5,D3\nU7,R6,D4,L4")))
     (is (= 159 (string-to-closest "R75,D30,R83,U83,L12,D49,R71,U7,L72\nU62,R66,U55,R34,D71,R55,D58,R83")))
     (is (= 135 (string-to-closest "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51\nU98,R91,D20,R16,D67,R40,U7,R15,U6,R7")))))
+
+
+(deftest day-03-part-2
+  (testing "string-to-shortest"
+    (is (= 610 (string-to-shortest "R75,D30,R83,U83,L12,D49,R71,U7,L72\nU62,R66,U55,R34,D71,R55,D58,R83")))
+    (is (= 410 (string-to-shortest "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51\nU98,R91,D20,R16,D67,R40,U7,R15,U6,R7")))))
