@@ -3,13 +3,17 @@
   (:require
     [aoc.day01.core]
     [aoc.day02.core]
-    [aoc.day03.core]))
+    [aoc.day03.core]
+    [aoc.day04.core]
+    [aoc.day05.core]))
 
 
 (defn run-all []
   (aoc.day01.core/run)
   (aoc.day02.core/run)
-  (aoc.day03.core/run))
+  (aoc.day03.core/run)
+  (aoc.day04.core/run)
+  (aoc.day05.core/run))
 
 
 (defn run-day [day]
