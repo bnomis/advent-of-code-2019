@@ -130,4 +130,5 @@
 
 
 (defn run []
-  (println "Day 06, part 1:" (file-to-steps "src/aoc/day06/input.txt")))
+  (println "Day 06, part 1:" (file-to-steps "src/aoc/day06/input.txt"))
+  (println "Day 06, part 2:" (file-to-least-steps "src/aoc/day06/input.txt" :YOU :SAN)))
