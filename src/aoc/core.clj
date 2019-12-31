@@ -7,7 +7,8 @@
     [aoc.day04.core]
     [aoc.day05.core]
     [aoc.day06.core]
-    [aoc.day07.core]))
+    [aoc.day07.core]
+    [aoc.day08.core]))
 
 
 (defn run-all []
@@ -17,7 +18,8 @@
   (aoc.day04.core/run)
   (aoc.day05.core/run)
   (aoc.day06.core/run)
-  (aoc.day07.core/run))
+  (aoc.day07.core/run)
+  (aoc.day08.core/run))
 
 
 (defn run-day [day]
