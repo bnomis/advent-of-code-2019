@@ -1,4 +1,4 @@
-(ns aoc.day09.core
+(ns aoc.day11.core
   (:require
     [clojure.string :as str]
     [clojure.math.combinatorics :as combo]
@@ -8,11 +8,15 @@
 (def state-init {:memory []
                  :pointer 0
                  :relative-base 0
-                 :phase nil
                  :inputs []
                  :input-channel nil
                  :outputs []
-                 :output-channel nil})
+                 :output-channel nil
+                 :hull {}
+                 :robot {:position [0 0]
+                         :direction :up
+                         :start-on-white false}})
+
 
 
 (defn add-instructions [state instructions]
@@ -29,23 +33,159 @@
   (assoc-in state [:input-channel] channel))
 
 
+(defn set-start-on-white [state value]
+  (assoc-in state [:robot :start-on-white] value))
+
+
+(defn is-start-on-white [state]
+  (get-in state [:robot :start-on-white]))
+
+
+(defn position-to-keyword [[x y]]
+  (keyword (str (str x) "," (str y))))
+
+
+(defn position-x [[x y]]
+  x)
+
+
+(defn position-y [[x y]]
+  y)
+
+
+(defn keyword-to-position [kw]
+  (into [] (map #(Integer/parseInt %1) (str/split (name kw) #","))))
+
+
+(defn keyword-to-position-x [kw]
+  (get (keyword-to-position kw) 0))
+
+
+(defn keyword-to-position-y [kw]
+  (get (keyword-to-position kw) 1))
+
+
+(defn robot-position [state]
+  (get-in state [:robot :position]))
+
+
+(defn robot-direction [state]
+  (get-in state [:robot :direction]))
+
+
+(defn root-position [position]
+  (and (= 0 (position 0)) (= 0 (position 1))))
+
+
+(defn colour-at-position [state position]
+  (let [kw (position-to-keyword position)
+        colour (get-in state [:hull kw])]
+    (if colour
+      colour
+      (if (and (root-position position) (is-start-on-white state))
+        1
+        0))))
+
+
+(defn colour-at-robot [state]
+  (colour-at-position state (robot-position state)))
+
+
+(defn paint-at-position [state position colour]
+  (assoc-in state [:hull (position-to-keyword position)] colour))
+
+
+(defn paint-at-robot [state colour]
+  (paint-at-position state (robot-position state) colour))
+
+
+(defn number-of-paints [state]
+  (count (:hull state)))
+
+
+(defn add-position-delta [position delta]
+  [(+ (position 0) (delta 0)) (+ (position 1) (delta 1))])
+
+
+(defn update-robot-position [state delta]
+  (update-in state [:robot :position] add-position-delta delta))
+
+
+(defn move-robot-forward [state]
+  (case (robot-direction state)
+    :up (update-robot-position state [0 1])
+    :left (update-robot-position state [-1 0])
+    :right (update-robot-position state [1 0])
+    :down (update-robot-position state [0 -1])))
+
+
+(defn update-robot-direction [state direction]
+  (assoc-in state [:robot :direction] direction))
+
+
+(defn rotate-robot-left [state]
+  (case (robot-direction state)
+    :up (update-robot-direction state :left)
+    :left (update-robot-direction state :down)
+    :right (update-robot-direction state :up)
+    :down (update-robot-direction state :right)))
+
+
+(defn rotate-robot-right [state]
+  (case (robot-direction state)
+    :up (update-robot-direction state :right)
+    :left (update-robot-direction state :up)
+    :right (update-robot-direction state :down)
+    :down (update-robot-direction state :left)))
+
+
+(defn rotate-robot [state value]
+  (case value
+    0 (rotate-robot-left state)
+    1 (rotate-robot-right state)))
+
+
 (defn read-input [state]
-  (if (:phase state)
-    (:phase state)
-    (async/<!! (:input-channel state))))
+  (colour-at-robot state))
 
 
 (defn send-input [state value]
   (async/>!! (:input-channel state) value))
 
 
+(defn send-output [state value]
+  (async/>!! (:output-channel state) value))
+
+
+(defn output-length [state]
+  (count (:outputs state)))
+
+
+(defn output-is-colour [state]
+  (even? (output-length state)))
+
+
 (defn add-output [state value]
   (update-in state [:outputs] conj value))
 
 
+(defn handle-colour [state value]
+  (-> state
+    (paint-at-robot value)
+    (add-output value)))
+
+
+(defn handle-rotation [state value]
+  (-> state
+    (rotate-robot value)
+    (move-robot-forward)
+    (add-output value)))
+
+
 (defn write-output [state value]
-  (async/>!! (:output-channel state) value)
-  (add-output state value))
+  (if (output-is-colour state)
+    (handle-colour state value)
+    (handle-rotation state value)))
 
 
 (defn get-last-output [state]
@@ -327,8 +467,7 @@
       ;(print-state state)
       (let [op (get-op state)]
         (if (= 99 op)
-          (do
-            (get-last-output state))
+          state
           (recur (exec-op state op)))))))
 
 
@@ -378,14 +517,106 @@
   (run-amp (make-amp (string-to-instructions string) (make-channel) (make-channel))))
 
 
-(defn run-string-with-input [string value]
-  (run-amp-with-input (make-amp (string-to-instructions string) (make-channel) (make-channel)) value))
+(defn run-file [filename]
+  (run-string (file-to-string filename)))
 
 
-(defn run-file-with-input [filename value]
-  (run-string-with-input (file-to-string filename) value))
+(defn run-string-start-white [string]
+  (run-amp (set-start-on-white (make-amp (string-to-instructions string) (make-channel) (make-channel)) true)))
+
+
+(defn run-file-start-white [filename]
+  (run-string-start-white (file-to-string filename)))
+
+
+(defn run-file-count-paints [filename]
+  (let [state (run-file filename)]
+    (number-of-paints state)))
+
+
+(defn hull-x-values [state]
+  (map keyword-to-position-x (keys (:hull state))))
+
+
+(defn hull-y-values [state]
+  (map keyword-to-position-y (keys (:hull state))))
+
+
+(defn hull-x-min [state]
+  (first (sort (hull-x-values state))))
+
+
+(defn hull-x-max [state]
+  (last (sort (hull-x-values state))))
+
+
+(defn hull-y-min [state]
+  (first (sort (hull-y-values state))))
+
+
+(defn hull-y-max [state]
+  (last (sort (hull-y-values state))))
+
+
+(defn x-to-column [x x-min]
+  (if (< x-min 0)
+    (- x x-min)
+    x))
+
+
+(defn y-to-row [y y-max]
+  (if (< y 0)
+    (+ (Math/abs y) (Math/abs y-max))
+    (- y y-max)))
+
+
+(defn position-to-row-column [[x y] x-min y-max]
+  [(y-to-row y y-max) (x-to-column x x-min)])
+
+
+(defn set-hull-value [hull rc value]
+  (assoc-in hull rc value))
+
+
+(defn make-row [width]
+  (into [] (repeat width 0)))
+
+
+(defn make-hull [width height]
+  (loop [count 0
+         rows []]
+    (if (= count height)
+      rows
+      (recur (inc count) (conj rows (make-row width))))))
+
+
+(defn paint-hull [state]
+  (let [x-min (hull-x-min state)
+        x-max (hull-x-max state)
+        y-min (hull-y-min state)
+        y-max (hull-y-max state)
+        width (+ (- x-max x-min) 1)
+        height (+ (- y-max y-min) 1)
+        hull (make-hull width height)]
+    (reduce (fn [c kw] (set-hull-value c (position-to-row-column (keyword-to-position kw) x-min y-max) (get-in state [:hull kw]))) hull (keys (:hull state)))))
+
+
+(defn print-hull [state]
+  (let [hull (paint-hull state)
+        lines (count hull)]
+    (loop [count 0]
+      (if (< count lines)
+        (do
+          (println (get hull count))
+          (recur (inc count)))))))
+
+
+(defn run-file-print-hull [filename]
+  (let [state (run-file-start-white filename)]
+    (print-hull state)))
 
 
 (defn run []
-  (println "Day 09, part 1:" (run-file-with-input "src/aoc/day09/input.txt" 1))
-  (println "Day 09, part 2:" (run-file-with-input "src/aoc/day09/input.txt" 2)))
+  (println "Day 11, part 1:" (run-file-count-paints "src/aoc/day11/input.txt"))
+  (println "Day 11, part 2:")
+  (run-file-print-hull "src/aoc/day11/input.txt"))
