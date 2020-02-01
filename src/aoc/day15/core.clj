@@ -419,6 +419,101 @@
   (into [] (map #(Integer/parseInt %1) (str/split (name kw) #","))))
 
 
+(defn update-x [c x]
+  (if (< x (:min-x c))
+    (assoc-in c [:min-x] x)
+    (if (> x (:max-x c))
+      (assoc-in c [:max-x] x)
+      c)))
+
+
+(defn update-y [c y]
+  (if (< y (:min-y c))
+    (assoc-in c [:min-y] y)
+    (if (> y (:max-y c))
+      (assoc-in c [:max-y] y)
+      c)))
+
+
+(defn map-to-min-max [map]
+  (reduce
+    (fn [c kw]
+      (let [pos (keyword-to-position kw)
+            x (get pos 0)
+            y (get pos 1)]
+        (-> c
+          (update-x x)
+          (update-y y))))
+    {:min-x 0
+     :max-x 0
+     :min-y 0
+     :max-y 0}
+    (keys map)))
+
+
+(defn empty-row [columns]
+  (into [] (take columns (repeat "-"))))
+
+
+(defn min-max-to-grid [{:keys [min-x max-x min-y max-y]}]
+  (let [columns (+ 1 (- max-x min-x))
+        rows (+ 1 (- max-y min-y))]
+    (loop [rows rows
+           grid []]
+      (if (= 0 rows)
+        grid
+        (recur (dec rows) (conj grid (empty-row columns)))))))
+
+
+(defn value-to-grid [value]
+  (if (int? value)
+    "."
+    value))
+
+
+(defn set-grid-value [grid row column value]
+  ;(println "set-grid-value" row column value)
+  (assoc-in grid [row column] (value-to-grid value)))
+
+
+(defn position-to-grid [x min-x]
+  (+ x (Math/abs min-x)))
+
+
+(defn position-to-row-column [[x y] min-x min-y]
+  [(position-to-grid y min-y) (position-to-grid x min-x)])
+
+
+(defn keyword-to-row-column [kw min-x min-y]
+  (position-to-row-column (keyword-to-position kw) min-x min-y))
+
+(defn print-grid [grid]
+  (let [rows (count grid)]
+    (loop [index 0]
+      (if (< index rows)
+        (do
+          (println (get grid index))
+          (recur (inc index)))))))
+
+
+(defn map-to-grid [map grid {:keys [min-x min-y]}]
+  (reduce
+    (fn [g kw]
+      ;(println kw)
+      ;(print-grid g)
+      (let [[row column] (keyword-to-row-column kw min-x min-y)]
+        (set-grid-value g row column (get-in map [kw]))))
+    grid
+    (keys map)))
+
+
+(defn visualise-map [state]
+  (let [min-max (map-to-min-max (:map state))
+        grid (min-max-to-grid min-max)
+        mapped-grid (map-to-grid (:map state) grid min-max)]
+    (print-grid mapped-grid)))
+
+
 (defn seeker-state [cpu]
   {:robot [0 0]
    :map {(position-to-keyword [0 0]) 1}
@@ -491,14 +586,14 @@
 
 (defn update-robot-position [state d]
   (let [new-position (robot-position state d)]
-    (println "update-robot-position" new-position)
+    ;(println "update-robot-position" new-position)
     (-> state
         (add-edge (robot-position-keyword state) (position-to-keyword new-position))
         (set-robot-position new-position))))
 
 
 (defn hit-wall [state d]
-  (println "hit-wall")
+  ;(println "hit-wall")
   (let [wall-position (robot-position state d)]
     (-> state
         (add-to-map wall-position "#")
@@ -506,7 +601,7 @@
 
 
 (defn moved [state d]
-  (println "moved")
+  ;(println "moved")
   (let [new-position (robot-position state d)]
     (-> state
       (increase-position-count new-position)
@@ -515,7 +610,7 @@
 
 
 (defn found [state d]
-  (println "found!")
+  ;(println "found!")
   (let [new-position (robot-position state d)]
     (-> state
       (add-to-map new-position "O")
@@ -524,7 +619,7 @@
 
 
 (defn move [state d]
-  (println "move" d)
+  ;(println "move" d)
   (write-cmd state d)
   (case (read-status state)
     0 (hit-wall state d)
@@ -620,18 +715,18 @@
 
 
 (defn sort-visit-counts [counts]
-  (println "counts" counts)
+  ;(println "counts" counts)
   (sort #(compare (last %1) (last %2)) counts))
 
 
 (defn find-least-visited-direction [state]
   (let [sorted (sort-visit-counts (visit-counts state))]
-    (println "sorted" sorted)
+    ;(println "sorted" sorted)
     (first (first sorted))))
 
 
 (defn take-steps [state direction steps]
-  (println "take-steps" direction steps)
+  ;(println "take-steps" direction steps)
   (loop [state (move state direction)
          count (- steps 1)]
     (if (or (= 0 count) (last-status-was-wall state) (last-status-was-oxygen state))
@@ -689,6 +784,7 @@
   (let [cpu (file-to-cpu filename)
         cpu-thread (run-cpu-in-thread cpu)
         state (seek-oxygen cpu)]
+    (visualise-map state)
     (oxygen-distance state)))
 
 
