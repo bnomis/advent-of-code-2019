@@ -452,7 +452,7 @@
 
 
 (defn empty-row [columns]
-  (into [] (take columns (repeat "-"))))
+  (into [] (take columns (repeat "="))))
 
 
 (defn min-max-to-grid [{:keys [min-x max-x min-y max-y]}]
@@ -487,6 +487,7 @@
 (defn keyword-to-row-column [kw min-x min-y]
   (position-to-row-column (keyword-to-position kw) min-x min-y))
 
+
 (defn print-grid [grid]
   (let [rows (count grid)]
     (loop [index 0]
@@ -507,20 +508,108 @@
     (keys map)))
 
 
+(defn set-grid-at-position [grid position min-x min-y value]
+  (let [[row column] (position-to-row-column position min-x min-y)]
+    (assoc-in grid [row column] value)))
+
+
+(defn robot-to-grid [state grid {:keys [min-x min-y]}]
+  (-> grid
+    (set-grid-at-position (:robot state) min-x min-y "X")
+    (set-grid-at-position (:oxygen state) min-x min-y "O")))
+
+
+(defn width [{:keys [min-x max-x]}]
+  (+ 1 (- max-x min-x)))
+
+
+(defn height [{:keys [min-y max-y]}]
+  (+ 1 (- max-y min-y)))
+
+
 (defn visualise-map [state]
   (let [min-max (map-to-min-max (:map state))
         grid (min-max-to-grid min-max)
-        mapped-grid (map-to-grid (:map state) grid min-max)]
-    (print-grid mapped-grid)))
+        mapped-grid (map-to-grid (:map state) grid min-max)
+        robot-grid (robot-to-grid state mapped-grid min-max)]
+    (print-grid robot-grid)
+    (println (width min-max) "x" (height min-max))))
+
+
+(defn add-wall [state x y]
+  (assoc-in state [:map (position-to-keyword [x y])] "#"))
+
+
+(defn wall-row [state row min-x max-x]
+  (loop [state state
+         x min-x]
+    (if (> x max-x)
+      state
+      (recur (add-wall state x row) (inc x)))))
+
+
+(defn wall-column [state column min-y max-y]
+  (loop [state state
+         y min-y]
+    (if (> y max-y)
+      state
+      (recur (add-wall state column y) (inc y)))))
+
+
+(defn edge-map [state]
+  (let [{:keys [min-x max-x min-y max-y]} (map-to-min-max (:map state))]
+    (-> state
+      (wall-row min-y min-x max-x)
+      (wall-row max-y min-x max-x)
+      (wall-column min-x min-y max-y)
+      (wall-column max-x min-y max-y))))
+
+
+(defn unvisited-position? [state position]
+  (not (contains? (:map state) (position-to-keyword position))))
+
+
+(defn corner-position? [[x y] min-x max-x min-y max-y]
+  (or
+    (and (= x min-x) (= y min-y))
+    (and (= x min-x) (= y max-y))
+    (and (= x max-x) (= y min-y))
+    (and (= x max-x) (= y max-y))))
+
+
+(defn not-corner-position? [[x y] min-x max-x min-y max-y]
+  (not (corner-position? [x y] min-x max-x min-y max-y)))
+
+
+(defn unvisited-not-corner-position? [state position min-x max-x min-y max-y]
+  (and
+    (unvisited-position? state position)
+    (not-corner-position? position min-x max-x min-y max-y)))
+
+
+(defn unvisited-positions [state]
+  (let [{:keys [min-x max-x min-y max-y]} (map-to-min-max (:map state))]
+    (for [x (range min-x (+ 1 max-x))
+          y (range min-y (+ 1 max-y))
+          :let [position [x y]]
+          :when (unvisited-not-corner-position? state position min-x max-x min-y max-y)]
+      position)))
 
 
 (defn seeker-state [cpu]
   {:robot [0 0]
+   :oxygen [0 0]
    :map {(position-to-keyword [0 0]) 1}
    :statuses []
    :cmd-channel (:input-channel cpu)
    :status-channel (:output-channel cpu)
-   :edges #{}})
+   :edges #{}
+   :oxygen-full []
+   :seen-nodes #{}})
+
+
+(defn null-vector? [[x y]]
+  (and (= 0 x) (= 0 y)))
 
 
 (defn vector-to-direction [[x y]]
@@ -576,6 +665,10 @@
   (update-in state [:edges] conj [frm to]))
 
 
+(defn set-oxygen-position [state new-position]
+  (assoc-in state [:oxygen] new-position))
+
+
 (defn set-robot-position [state new-position]
   (assoc-in state [:robot] new-position))
 
@@ -588,7 +681,8 @@
   (let [new-position (robot-position state d)]
     ;(println "update-robot-position" new-position)
     (-> state
-        (add-edge (robot-position-keyword state) (position-to-keyword new-position))
+        (add-edge (robot-position-keyword state)
+                  (position-to-keyword new-position))
         (set-robot-position new-position))))
 
 
@@ -613,9 +707,10 @@
   ;(println "found!")
   (let [new-position (robot-position state d)]
     (-> state
-      (add-to-map new-position "O")
-      (append-status 2)
-      (update-robot-position d))))
+        (set-oxygen-position new-position)
+        (increase-position-count new-position)
+        (append-status 2)
+        (update-robot-position d))))
 
 
 (defn move [state d]
@@ -641,6 +736,14 @@
     2 3
     3 4
     4 1))
+
+
+(defn opposite-direction [d]
+  (case d
+    1 2
+    2 1
+    3 4
+    4 3))
 
 
 (defn isa [state position value]
@@ -669,6 +772,26 @@
 
 (defn filter-out-visited [state steps directions]
   (filterv #(not-visited state steps %1) directions))
+
+
+(defn keyword-is-a-wall [state kw]
+  (= "#" (get-in state [:map kw])))
+
+
+(defn keyword-is-not-a-wall [state kw]
+  (not (keyword-is-a-wall state kw)))
+
+
+(defn keyword-is-visitable [state kw]
+  ;(println "keyword-is-visitable" kw)
+  (if (and (contains? (:map state) kw) (keyword-is-not-a-wall state kw))
+    true
+    false))
+
+
+(defn position-is-visitable [state position]
+  ;(println "position-is-visitable" position)
+  (keyword-is-visitable state (position-to-keyword position)))
 
 
 (def all-directions
@@ -721,7 +844,7 @@
 
 (defn find-least-visited-direction [state]
   (let [sorted (sort-visit-counts (visit-counts state))]
-    ;(println "sorted" sorted)
+    ;(println "find-least-visited-direction" sorted)
     (first (first sorted))))
 
 
@@ -734,6 +857,34 @@
       (recur (move state direction) (- count 1)))))
 
 
+(defn move-until-wall [state d]
+  (let [state (move state d)]
+    (loop [state state]
+      (if (last-status-was-wall state)
+        state
+        (recur (move state d))))))
+
+
+(defn move-until-position [state d position]
+  (loop [state state]
+    (if (= position (:robot state))
+      state
+      (recur (move state d)))))
+
+
+(defn probe-direction [state d]
+  (let [start (:robot state)
+        state (move-until-wall state d)]
+    (move-until-position state (opposite-direction d) start)))
+
+
+(defn probe [state]
+  (reduce
+    (fn [s d] (probe-direction s d))
+    state
+    all-directions))
+
+
 (defn do-seek [state]
   (let [unvisited-direction (find-unvisited-direction state)]
     (if unvisited-direction
@@ -742,21 +893,11 @@
 
 
 (defn oxygen-kw [state]
-  (let [kws (keys (:map state))]
-    (loop [kw (first kws)
-           kws (rest kws)]
-      (if (= "O" (get-in state [:map kw]))
-        kw
-        (recur (first kws) (rest kws))))))
+  (position-to-keyword (:oxygen state)))
 
 
 (defn oxygen-position [state]
-  (keyword-to-position (oxygen-kw state)))
-
-
-(defn oxygen-distance-old [state]
-  (let [pos (oxygen-position state)]
-    (+ (Math/abs (get pos 0)) (Math/abs (get pos 1)))))
+  (:oxygen state))
 
 
 (defn oxygen-distance [state]
@@ -784,10 +925,267 @@
   (let [cpu (file-to-cpu filename)
         cpu-thread (run-cpu-in-thread cpu)
         state (seek-oxygen cpu)]
-    (visualise-map state)
     (oxygen-distance state)))
+
+
+(defn move-delta [state delta]
+  (move state (vector-to-direction delta)))
+
+
+(defn keyword-delta [frm to]
+  (let [[frm-x frm-y] (keyword-to-position frm)
+        [to-x to-y] (keyword-to-position to)]
+    [(- to-x frm-x) (- to-y frm-y)]))
+
+
+(defn move-to-keyword [state to]
+  (let [frm (robot-position-keyword state)]
+    (if (= frm to)
+      state
+      (move-delta state (keyword-delta frm to)))))
+
+
+(defn walk-path [state path]
+  ;(println "walk-path" path)
+  (reduce move-to-keyword state path))
+
+
+(defn move-to-position [state [to-x to-y]]
+  (let [[frm-x frm-y] (:robot state)
+        delta [(- to-x frm-x) (- to-y frm-y)]]
+    (move-delta state delta)))
+
+
+(defn has-path? [state to]
+  (let [frm (robot-position-keyword state)
+        to-kw (position-to-keyword to)
+        g (apply graph/graph (:edges state))
+        path (alg/bf-path g frm to-kw)]
+    (if path
+      true
+      false)))
+
+
+(def neighbour-vectors
+  [[1 0]
+   [-1 0]
+   [0 1]
+   [0 -1]])
+
+
+(defn state-to-graph [state]
+  (apply graph/graph (:edges state)))
+
+
+(defn path-between-keywords [graph frm to]
+  (alg/bf-path graph frm to))
+
+
+(defn path-between-keywords? [graph frm to]
+  (if (path-between-keywords graph frm to)
+    true
+    false))
+
+
+(defn path-between-positions [graph frm to]
+  (path-between-keywords graph (position-to-keyword frm) (position-to-keyword to)))
+
+
+(defn position-to-neighbours [position]
+  (reduce
+    (fn [c p]
+      (conj c (add-vectors position p)))
+    []
+    neighbour-vectors))
+
+
+(defn position-to-visitable-neighbours [state position]
+  (filterv
+    (fn [p]
+      (position-is-visitable state p))
+    (position-to-neighbours position)))
+
+
+(defn first-path-to-positions [state positions]
+  (let [position-count (count positions)
+        g (state-to-graph state)
+        frm (:robot state)]
+    (loop [index 0]
+      (if (< index position-count)
+        (let [path (path-between-positions g frm (get positions index))]
+          (if path
+            path
+            (recur (inc index))))))))
+
+
+(defn path-to-position-neighbours [state position]
+  (let [neighbours (position-to-visitable-neighbours state position)
+        neighbour-count (count neighbours)]
+    ;(println "neighbours" neighbours)
+    (if (= neighbour-count 0)
+      nil
+      (first-path-to-positions state neighbours))))
+
+
+(defn can-visit-position? [state position]
+  ;(println "can-visit-position?" position)
+  (if (path-to-position-neighbours state position)
+    true
+    false))
+
+
+(defn visitable-unvisited-positions [state]
+  (filterv
+    (fn [p]
+      (can-visit-position? state p))
+    (unvisited-positions state)))
+
+
+(defn visit-position [state position]
+  ;(println "visit-position" position)
+  (let [path (path-to-position-neighbours state position)
+        state (walk-path state path)]
+    (-> state
+      (move-to-position position)
+      (probe))))
+
+
+(defn walk-to [state to]
+  (let [frm (robot-position-keyword state)
+        to-kw (position-to-keyword to)
+        g (apply graph/graph (:edges state))
+        path (alg/bf-path g frm to-kw)]
+    ;(println "walk-to" frm to-kw)
+    (if path
+      (walk-path state path)
+      state)))
+
+
+(defn walk [state unvisited]
+  ;(println "walk unvisited" (count unvisited))
+  (reduce walk-to state unvisited))
+
+
+(defn visit-unvisited [state]
+  (let [unvisited (unvisited-positions state)]
+    (visualise-map state)
+    (if-not unvisited
+      state
+      (visit-unvisited (walk state unvisited)))))
+
+
+(defn init-oxygen-full [state]
+  (let [kw (position-to-keyword (:oxygen state))]
+    (-> state
+      (assoc-in [:oxygen-full] [[kw]])
+      (assoc-in [:seen-nodes] #{kw}))))
+
+
+(defn seen-node? [state node]
+  (contains? (:seen-nodes state) node))
+
+
+(defn unseen-node? [state node]
+  (not (seen-node? state node)))
+
+
+(defn filter-out-seen-nodes [state nodes]
+  (filterv
+    (fn [n]
+      (unseen-node? state n))
+    nodes))
+
+
+(defn add-to-seen-nodes [state nodes]
+  (update-in state [:seen-nodes] into nodes))
+
+
+(defn count-oxygen-full-nodes [state]
+  (reduce + (map count (:oxygen-full state))))
+
+
+(defn count-oxygen-full-loops [state]
+  (- (count (:oxygen-full state)) 1))
+
+
+(defn node-to-successors [g n]
+  (graph/successors g n))
+
+
+(defn nodes-to-successors [g nodes]
+  (reduce
+    (fn [c n]
+      (into c (node-to-successors g n)))
+    []
+    nodes))
+
+
+(defn append-oxygen-full [state nodes]
+  (update-in state [:oxygen-full] conj nodes))
+
+
+(defn last-oxygen-full [state]
+  (last (:oxygen-full state)))
+
+
+(defn neighbour-fill [state g]
+  (let [nodes (last-oxygen-full state)
+        successors (nodes-to-successors g nodes)
+        unseen-nodes (filter-out-seen-nodes state successors)]
+    (-> state
+      (append-oxygen-full unseen-nodes)
+      (add-to-seen-nodes unseen-nodes))))
+
+
+(defn oxygen-fill [state]
+  ;(println "oxygen-fill")
+  (let [g (state-to-graph state)
+        state (init-oxygen-full state)
+        node-count (count (graph/nodes g))]
+    (loop [state state]
+      ;(println "filled" (:oxygen-full state))
+      (if (= node-count (count-oxygen-full-nodes state))
+        state
+        (recur (neighbour-fill state g))))))
+
+
+(defn oxygen-fill-count [state]
+  (let [state (oxygen-fill state)]
+    (count-oxygen-full-loops state)))
+
+
+(defn visited-all [state]
+  (= (count (unvisited-positions state)) 0))
+
+
+(defn visit-positions [state positions]
+  (reduce
+    (fn [s p]
+      (visit-position s p))
+    state
+    positions))
+
+
+(defn explore-map [state]
+  ;(println "explore-map")
+  ;(visualise-map state)
+  ;(println "")
+  (let [positions (visitable-unvisited-positions state)
+        count (count positions)]
+    ;(println positions)
+    (if (= 0 count)
+      state
+      (explore-map (visit-positions state positions)))))
+
+
+(defn file-to-oxygen-fill [filename]
+  (let [cpu (file-to-cpu filename)
+        cpu-thread (run-cpu-in-thread cpu)
+        state (seek-oxygen cpu)
+        state (explore-map state)]
+    (oxygen-fill-count state)))
 
 
 (defn run []
   (println "Day 15, part 1:" (file-to-oxygen-distance "src/aoc/day15/input.txt"))
-  (println "Day 15, part 2:"))
+  (println "Day 15, part 2:" (file-to-oxygen-fill "src/aoc/day15/input.txt")))
